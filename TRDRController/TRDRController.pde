@@ -27,30 +27,35 @@
  * A0-A5 (D14-D19) = PCINT 8-13 = PCIR1 = PC = PCIE1 = pcmsk1
  */
 
+#define rPinZero 0
+#define rPinOne 1
+#define rPinLight 2
+#define bPin 8
+#define innerPin 23
+#define outerPin 24
+#define innerMag 40
+#define outerMag 39
+
 long bit_holder = 0;
 int bit_count = 0;
 
 long previousMillis = 0;        // will store last time LED was updated
 long interval = 5000;           // interval at which to reset display (milliseconds)
-int nums[] = {30178,31936,23768,36686,30174,42073,25320,28808,23339,23844,25339,41599,25380,35623,34777,23389,26839,34894,
-              30095,33563,28797,22858,35617,13993,23528,34853,41621,28077,35741,23559,23305,34884};
-int num = sizeof(nums);
+int numsFull[] = {30178,31936,23768,36686,30174,42073,25320,28808,23339,23844,
+25339,41599,25380,23761,28797,23317,11342,28820,28823,31852,35623,34777,23389,26839,34894,30095,33563};
+int numFull = sizeof(numsFull);
 
-void DATA0(void) {
-    bit_count++;
-    bit_holder = bit_holder << 1;
-}
-
-void DATA1(void) {
-   bit_count++;
-   bit_holder = bit_holder << 1;
-   bit_holder |= 1;
-}
+int numsTink[] = {22858,35617,13993,23528,34853,41621,28077,35741,23559,23305,32546,26763,23377,
+33606,34884,23359,31858,26892,27102};
+int numTink = sizeof(numsTink);
 
 
-void reader1One(void) {
 
-if(digitalRead(1) == LOW) {
+
+
+void reader1One(void){
+if(digitalRead(rPinOne) == LOW) {
+  Serial.print("1");
    bit_count++;
    bit_holder = bit_holder << 1;
    bit_holder |= 1;
@@ -58,19 +63,41 @@ if(digitalRead(1) == LOW) {
 }
 
 void reader1Zero(void) {
-if(digitalRead(0) == LOW) {
+if(digitalRead(rPinZero) == LOW) {
+  Serial.print("0");
   bit_count++;
   bit_holder = bit_holder << 1;
 }
 }
+
+void lockInner(void) {
+  Serial.println("Inner Door Locked.");
+  digitalWrite(innerPin, LOW);
+}
+
+void lockOuter(void) {
+    Serial.println("Outer Door Locked.");
+  digitalWrite(outerPin, HIGH);
+}
+void openInner(void) {
+  Serial.println("Inner Door Locked.");
+  digitalWrite(innerPin, HIGH);
+}
+
+void openOuter(void) {
+    Serial.println("Outer Door Locked.");
+  digitalWrite(outerPin, LOW);
+}
+
 
 
 void setup()
 {
   Serial.begin(9600);
   // Attach pin change interrupt service routines from the Wiegand RFID readers
-  attachInterrupt(1, reader1One, CHANGE);  
-  attachInterrupt(0, reader1Zero, CHANGE);
+  attachInterrupt(rPinOne, reader1One, CHANGE);  
+  attachInterrupt(rPinZero, reader1Zero, CHANGE);
+  
   delay(10);
   // the interrupt in the Atmel processor mises out the first negitave pulse as the inputs are already high,
   // so this gives a pulse to each reader input line to get the interrupts working properly.
@@ -79,20 +106,22 @@ void setup()
   pinMode(6,OUTPUT);
   digitalWrite(6,LOW);
   
-  pinMode(2, OUTPUT); 
-  digitalWrite(2, HIGH);       // turn on pullup resistors
+  pinMode(rPinLight, OUTPUT); 
+  digitalWrite(rPinLight, HIGH);       // turn on pullup resistors
 
-  pinMode(13, OUTPUT); // inner
-  digitalWrite(13, LOW);
+  pinMode(outerPin, OUTPUT); // inner
+  digitalWrite(outerPin, HIGH);
   
-  pinMode(12, OUTPUT); //outer
-  digitalWrite(12,HIGH);
+  pinMode(innerPin, OUTPUT); //outer
+  digitalWrite(innerPin,LOW);
   
-  pinMode(10, INPUT);
-  
+  pinMode(bPin, INPUT);
+  pinMode(innerMag, INPUT); // inner door contact switch
+  pinMode(outerMag, INPUT); // outer door contact switch
   delay(10);
   // put the reader input variables to zero
   digitalWrite(6, HIGH);  // show Arduino has finished initilisation
+  Serial.println("Reader Init Complete.");
 }
 
 void loop() {
@@ -102,6 +131,7 @@ void loop() {
     }
     
     if (bit_count == 26) {
+      Serial.println("");
        processRFID(bit_holder);
        bit_holder=0;
        bit_count=0;
@@ -109,11 +139,88 @@ void loop() {
        
     } 
 
-  if(digitalRead(10)) {
+  if(digitalRead(bPin)) {
     Serial.println("Bypass open active on pin 10"); 
-   open(); 
+   openFull(); 
   }
      
+}
+void openTink() {  
+  Serial.println("Open Tink.");
+  digitalWrite(rPinLight,LOW);
+  digitalWrite(6,LOW);
+  openOuter();
+   long waitmillis = millis();
+  boolean openinner = false;
+  boolean openouter = false;
+  boolean relockouter = false;
+  boolean relockinner = false;
+  while(millis()-waitmillis<10000) {
+   if(!relockouter) openouter = !digitalRead(outerMag);
+   if(!relockinner) openinner = !digitalRead(innerMag);
+
+  if(openouter && digitalRead(outerMag)) {
+    
+    digitalWrite(outerPin, HIGH);
+      Serial.println("Relatch outter on pin 19"); 
+      relockouter=true;
+    openouter = false;
+  }
+  if(openinner && digitalRead(innerMag)) {
+      Serial.println("Relatch inner on pin 18");
+    digitalWrite(outerPin, LOW);
+    relockinner=true;
+  openinner = false;
+}
+if((relockouter || relockinner) && digitalRead(bPin)) {
+    Serial.println("Bypass open active on pin 10"); 
+   openFull(); 
+   break;
+  }
+  }
+  digitalWrite(rPinLight,HIGH);
+  digitalWrite(6,HIGH);
+  lockOuter();
+}
+
+void openFull() {
+  Serial.println("Open Full.");
+   digitalWrite(rPinLight,LOW);
+  digitalWrite(6,LOW);
+  openOuter();
+  openInner();
+  long waitmillis = millis();
+  boolean openinner = false;
+  boolean openouter = false;
+  boolean relockouter = false;
+  boolean relockinner = false;
+  while(millis()-waitmillis<10000) {
+   if(!relockouter) openouter = !digitalRead(outerMag);
+   if(!relockinner) openinner = !digitalRead(innerMag);
+
+  if(openouter && digitalRead(outerMag)) {
+    
+    lockOuter();
+      Serial.println("Relatch outter on pin 19"); 
+      relockouter=true;
+    openouter = false;
+  }
+  if(openinner && digitalRead(innerMag)) {
+      Serial.println("Relatch inner on pin 18");
+    lockInner();
+    relockinner=true;
+  openinner = false;
+}
+if((relockouter || relockinner) && digitalRead(bPin)) {
+    Serial.println("Bypass open active on pin 10"); 
+   openFull(); 
+   break;
+  }
+  }
+  digitalWrite(rPinLight,HIGH);
+  digitalWrite(6,HIGH);
+lockInner();
+lockOuter();
 }
 
 void processRFID(long id) {
@@ -131,25 +238,21 @@ if(facid != 113) {
  unsigned int val = (unsigned int)((id>>1)&0x0FFFF);
   Serial.print("Cardid:");
   Serial.println(val);
-  for(int i=0;i<num;i++) {
-  if(val == nums[i]) {
-      Serial.println("Card Authorized!");
-    open();
+  for(int i=0;i<numFull;i++) {
+  if(val == numsFull[i]) {
+      Serial.println("Full Card Authorized!");
+    openFull();
+    return;
+  }
+  } for(int i=0;i<numTink;i++) {
+  if(val == numsTink[i]) {
+      Serial.println("Tink Card Authorized!");
+    openTink();
     return;
   }
   }
   Serial.println("Card Unauthorized!");
-  return;
 }
-void open() {  
-  digitalWrite(2,LOW);
-  digitalWrite(6,LOW);
-  digitalWrite(13,HIGH);
-  digitalWrite(12,LOW);
-  delay(10000);
-  digitalWrite(2,HIGH);
-  digitalWrite(6,HIGH);
-  digitalWrite(13,LOW);
-  digitalWrite(12,HIGH);
-}
+
+
 
